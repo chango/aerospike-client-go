@@ -35,10 +35,13 @@ import (
 )
 
 type TStats struct {
-	Exit     bool
-	W, R     int // write and read counts
-	WE, RE   int // write and read errors
-	WTO, RTO int // write and read timeouts
+	Exit                       bool
+	W, R                       int // write and read counts
+	WE, RE                     int // write and read errors
+	WTO, RTO                   int // write and read timeouts
+	W1, W2, W4, W8, WMin, WMax int64
+	R1, R2, R4, R8, RMin, RMax int64
+	WLat, RLat                 int64
 }
 
 var countReportChan = make(chan *TStats, 100) // async chan
@@ -72,6 +75,8 @@ var workloadPercent int
 var wg sync.WaitGroup
 
 func main() {
+	log.SetOutput(os.Stdout)
+
 	// use all cpus in the system for concurrency
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	readFlags()
@@ -93,6 +98,8 @@ func main() {
 		log.Fatal(err)
 	}
 
+	log.Println("Nodes Found:", client.GetNodeNames())
+
 	go reporter()
 	for i := 1; i < *concurrency; i++ {
 		wg.Add(1)
@@ -104,7 +111,7 @@ func main() {
 	wg.Wait()
 
 	// send term to reporter, and wait for it to terminate
-	countReportChan <- &TStats{true, 0, 0, 0, 0, 0, 0}
+	countReportChan <- &TStats{true, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 	time.Sleep(10 * time.Millisecond)
 	<-countReportChan
 }
@@ -216,11 +223,11 @@ func getBin(rnd *rand.Rand) *Bin {
 
 var r *Record
 
+const random_alpha_num = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+const l = 62
+
 // generates a random strings of specified length
 func randString(size int, rnd *rand.Rand) string {
-	const random_alpha_num = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	const l = 62
-
 	buf := make([]byte, size)
 	for i := 0; i < size; i++ {
 		buf[i] = random_alpha_num[rnd.Intn(l)]
@@ -256,8 +263,17 @@ func runBench(client *Client, ident int, times int) {
 	var WCount, RCount int
 	var writeErr, readErr int
 	var writeTOErr, readTOErr int
+
+	var tm time.Time
+	var wLat, rLat int64
+	var wLatTotal, rLatTotal int64
+	var wMinLat, rMinLat int64
+	var wMaxLat, rMaxLat int64
+	var w1, w2, w4, w8, r1, r2, r4, r8 int64
+
 	bin := defaultBin
 	for i := 1; workloadType == "RU" || i <= times; i++ {
+		rLat, wLat = 0, 0
 		// if randomBin data has been requested
 		if *randBinData {
 			bin = getBin(rnd)
@@ -266,25 +282,78 @@ func runBench(client *Client, ident int, times int) {
 		key, _ := NewKey(*namespace, *set, ident*times+(i%times))
 		if workloadType == "I" || rnd.Intn(100) >= workloadPercent {
 			WCount++
+			tm = time.Now()
 			if err = client.PutBins(writepolicy, key, bin); err != nil {
 				incOnError(&writeErr, &writeTOErr, err)
 			}
+			wLat = int64(time.Now().Sub(tm) / time.Millisecond)
+			wLatTotal += wLat
+			if wLat <= 1 {
+				w1++
+			}
+
+			if wLat <= 2 {
+				w2++
+			}
+
+			if wLat <= 4 {
+				w4++
+			}
+
+			if wLat <= 8 {
+				w8++
+			}
+
+			if wLat < wMinLat {
+				wMinLat = wLat
+			}
+
+			if wLat > wMaxLat {
+				wMaxLat = wLat
+			}
 		} else {
 			RCount++
+			tm = time.Now()
 			if r, err = client.Get(readpolicy, key, bin.Name); err != nil {
 				incOnError(&readErr, &readTOErr, err)
+			}
+			rLat = int64(time.Now().Sub(tm) / time.Millisecond)
+			rLatTotal += rLat
+			if rLat <= 1 {
+				r1++
+			}
+			if rLat <= 2 {
+				r2++
+			}
+			if rLat <= 4 {
+				r4++
+			}
+			if rLat <= 8 {
+				r8++
+			}
+			if rLat < rMinLat {
+				rMinLat = rLat
+			}
+			if rLat > rMaxLat {
+				rMaxLat = rLat
 			}
 		}
 
 		if time.Now().Sub(t) > (100 * time.Millisecond) {
-			countReportChan <- &TStats{false, WCount, RCount, writeErr, readErr, writeTOErr, readTOErr}
+			countReportChan <- &TStats{false, WCount, RCount, writeErr, readErr, writeTOErr, readTOErr, w1, w2, w4, w8, wMinLat, wMaxLat, r1, r2, r4, r8, rMinLat, rMaxLat, wLatTotal, rLatTotal}
 			WCount, RCount = 0, 0
 			writeErr, readErr = 0, 0
 			writeTOErr, readTOErr = 0, 0
+
+			// reset stats
+			wLatTotal, rLatTotal = 0, 0
+			w1, w2, w4, w8, wMinLat, wMaxLat = 0, 0, 0, 0, 0, 0
+			r1, r2, r4, r8, rMinLat, rMaxLat = 0, 0, 0, 0, 0, 0
+
 			t = time.Now()
 		}
 	}
-	countReportChan <- &TStats{false, WCount, RCount, writeErr, readErr, writeTOErr, readTOErr}
+	countReportChan <- &TStats{false, WCount, RCount, writeErr, readErr, writeTOErr, readTOErr, w1, w2, w4, w8, wMinLat, wMaxLat, r1, r2, r4, r8, rMinLat, rMaxLat, wLatTotal, rLatTotal}
 }
 
 // calculates transactions per second
@@ -302,6 +371,12 @@ func reporter() {
 
 	var memStats = new(runtime.MemStats)
 	var lastTotalAllocs, lastPauseNs uint64
+
+	// var wLat, rLat int64
+	var wTotalLat, rTotalLat int64
+	var wMinLat, rMinLat int64
+	var wMaxLat, rMaxLat int64
+	var w1, w2, w4, w8, r1, r2, r4, r8 int64
 
 	memProfileStr := func() string {
 		var res string
@@ -339,21 +414,55 @@ Loop:
 			totalErrCount += (stats.WE + stats.RE)
 			totalTOCount += (stats.WTO + stats.RTO)
 
+			wTotalLat += stats.WLat
+			rTotalLat += stats.RLat
+
+			w1 += stats.W1
+			w2 += stats.W2
+			w4 += stats.W4
+			w8 += stats.W8
+			r1 += stats.R1
+			r2 += stats.R2
+			r4 += stats.R4
+			r8 += stats.R8
+
+			if stats.RMax > rMaxLat {
+				rMaxLat = stats.RMax
+			}
+			if stats.RMin < rMinLat {
+				rMinLat = stats.RMin
+			}
+			if stats.WMax > wMaxLat {
+				wMaxLat = stats.WMax
+			}
+			if stats.WMin < wMinLat {
+				wMinLat = stats.WMin
+			}
+
 			if stats.Exit || time.Now().Sub(lastReportTime) >= time.Second {
 				if workloadType == "I" {
-					log.Printf("write(tps=%d timeouts=%d errors=%d totalCount=%d)%s",
-						calcTPS(totalWCount+totalRCount, time.Now().Sub(lastReportTime)), totalTOCount, totalErrCount, totalCount,
+					tps := calcTPS(totalWCount+totalRCount, time.Now().Sub(lastReportTime)) + 1
+					log.Printf("write(tps=%d timeouts=%d errors=%d totalCount=%d, lat avg=%d min=%d max=%d <1ms=%3.1f%% <2ms=%3.1f%% <4ms=%3.1f%% <8ms=%3.1f%% )%s",
+						tps-1, totalTOCount, totalErrCount, totalCount, wTotalLat/int64(tps),
+						wMinLat, wMaxLat, float64(w1)/float64(tps)*100, float64(w2)/float64(tps)*100, float64(w4)/float64(tps)*100, float64(w8)/float64(tps)*100,
 						memProfileStr(),
 					)
 				} else {
+					wtps := calcTPS(totalWCount, time.Now().Sub(lastReportTime)) + 1
+					rtps := calcTPS(totalRCount, time.Now().Sub(lastReportTime)) + 1
 					log.Printf(
-						"write(tps=%d timeouts=%d errors=%d) read(tps=%d timeouts=%d errors=%d) total(tps=%d timeouts=%d errors=%d, count=%d)%s",
-						calcTPS(totalWCount, time.Now().Sub(lastReportTime)), totalWTOCount, totalWErrCount,
-						calcTPS(totalRCount, time.Now().Sub(lastReportTime)), totalRTOCount, totalRErrCount,
+						"write(tps=%d timeouts=%d errors=%d, lat avg=%d min=%d max=%d, <1ms=%3.1f%% <2ms=%3.1f%% <4ms=%3.1f%% <8ms=%3.1f%%) read(tps=%d timeouts=%d errors=%d, lat avg=%d min=%d max=%d <1ms=%3.1f%% <2ms=%3.1f%% <4ms=%3.1f%% <8ms=%3.1f%%) total(tps=%d timeouts=%d errors=%d, count=%d)%s",
+						wtps-1, totalWTOCount, totalWErrCount, wTotalLat/int64(wtps), wMinLat, wMaxLat, float64(w1)/float64(wtps)*100, float64(w2)/float64(wtps)*100, float64(w4)/float64(wtps)*100, float64(w8)/float64(wtps)*100,
+						rtps-1, totalRTOCount, totalRErrCount, rTotalLat/int64(rtps), rMinLat, rMaxLat, float64(r1)/float64(rtps)*100, float64(r2)/float64(rtps)*100, float64(r4)/float64(rtps)*100, float64(r8)/float64(rtps)*100,
 						calcTPS(totalWCount+totalRCount, time.Now().Sub(lastReportTime)), totalTOCount, totalErrCount, totalCount,
 						memProfileStr(),
 					)
 				}
+
+				// reset stats
+				wTotalLat, rTotalLat = 0, 0
+				w1, w2, w4, w8, wMinLat, wMaxLat = 0, 0, 0, 0, 0, 0
+				r1, r2, r4, r8, rMinLat, rMaxLat = 0, 0, 0, 0, 0, 0
 
 				totalWCount, totalRCount = 0, 0
 				totalWErrCount, totalRErrCount = 0, 0
@@ -366,5 +475,5 @@ Loop:
 			}
 		}
 	}
-	countReportChan <- &TStats{false, 0, 0, 0, 0, 0, 0}
+	countReportChan <- &TStats{}
 }

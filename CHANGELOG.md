@@ -1,5 +1,28 @@
 # Change history
 
+## Nov 2 2014
+
+  Minor, but very impoortant fix.
+
+  * **Fixes**:
+
+    * Node selection in partition map was flawed on first refresh.
+
+  * **Incompatible changes**:
+
+    * `Expiration` and `Generation` in `WritePolicy` are now `int32`
+    * `TaskId` in `Statement` is now always set in the client, and is `int64`
+
+  * **New Features**:
+
+    * float32, float64 and bool are now supported in map and array types
+
+## Oct 15 2014 (Beta 2)
+
+  * **Hot fix**:
+
+    * Fixed pack/unpack for uint64
+
 ## Aug 20 2014 (Beta 1)
 
   Major changes and improvements.

@@ -517,7 +517,7 @@ func (cmd *baseCommand) writeHeader(readAttr int, writeAttr int, fieldCount int,
 // Header write for write operations.
 func (cmd *baseCommand) writeHeaderWithPolicy(policy *WritePolicy, readAttr int, writeAttr int, fieldCount int, operationCount int) {
 	// Set flags.
-	generation := 0
+	generation := int32(0)
 	infoAttr := 0
 
 	switch policy.RecordExistsAction {
@@ -561,8 +561,8 @@ func (cmd *baseCommand) writeHeaderWithPolicy(policy *WritePolicy, readAttr int,
 	cmd.dataBuffer[11] = byte(infoAttr)
 	cmd.dataBuffer[12] = 0 // unused
 	cmd.dataBuffer[13] = 0 // clear the result code
-	Buffer.Int32ToBytes(int32(generation), cmd.dataBuffer, 14)
-	Buffer.Int32ToBytes(int32(policy.Expiration), cmd.dataBuffer, 18)
+	Buffer.Int32ToBytes(generation, cmd.dataBuffer, 14)
+	Buffer.Int32ToBytes(policy.Expiration, cmd.dataBuffer, 18)
 
 	// Initialize timeout. It will be written later.
 	cmd.dataBuffer[22] = 0
@@ -733,7 +733,7 @@ func (cmd *baseCommand) end() {
 // maximum buffer size to keep in the pool: 128K
 var bufPool = NewBufferPool(512, 16*1024, 128*1024)
 
-// SetBufferPool can be used to customize the command Buffer Pool parameters to calibrate
+// SetCommandBufferPool can be used to customize the command Buffer Pool parameters to calibrate
 // the pool for different workloads
 func SetCommandBufferPool(poolSize, initBufSize, maxBufferSize int) {
 	bufPool = NewBufferPool(poolSize, initBufSize, maxBufferSize)

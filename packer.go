@@ -16,10 +16,10 @@ package aerospike
 
 import (
 	"bytes"
+	"fmt"
 	"math"
 	"reflect"
 
-	// . "github.com/aerospike/aerospike-client-go/logger"
 	ParticleType "github.com/aerospike/aerospike-client-go/types/particle_type"
 	Buffer "github.com/aerospike/aerospike-client-go/utils/buffer"
 )
@@ -171,12 +171,25 @@ func (pckr *packer) PackObject(obj interface{}) error {
 		if Buffer.Arch32Bits {
 			pckr.PackAInt(int(obj.(uint)))
 			return nil
-		} // uint64 not supported
+		}
+		pckr.PackAULong(obj.(uint64))
 	case int64:
 		pckr.PackALong(obj.(int64))
 		return nil
+	case uint64:
+		pckr.PackAULong(obj.(uint64))
+		return nil
 	case nil:
 		pckr.PackNil()
+		return nil
+	case bool:
+		pckr.PackBool(obj.(bool))
+		return nil
+	case float32:
+		pckr.PackFloat32(obj.(float32))
+		return nil
+	case float64:
+		pckr.PackFloat64(obj.(float64))
 		return nil
 	}
 
@@ -189,13 +202,16 @@ func (pckr *packer) PackObject(obj interface{}) error {
 		for i := 0; i < l; i++ {
 			arr[i] = s.Index(i).Interface()
 		}
-
 		return pckr.PackList(arr)
 	case reflect.Map:
 		return pckr.PackMap(obj.(map[interface{}]interface{}))
 	}
 
-	return nil
+	panic(fmt.Sprintf("Type `%v` not supported to pack.", reflect.TypeOf(obj)))
+}
+
+func (pckr *packer) PackAULong(val uint64) {
+	pckr.PackULong(val)
 }
 
 func (pckr *packer) PackALong(val int64) {
@@ -219,7 +235,7 @@ func (pckr *packer) PackALong(val int64) {
 			pckr.PackInt(0xce, int32(val))
 			return
 		}
-		pckr.PackLong(0xcf, val)
+		pckr.PackLong(0xd3, val)
 	} else {
 		if val >= -32 {
 			pckr.PackAByte(0xe0 | byte(val) + 32)
@@ -296,6 +312,11 @@ func (pckr *packer) PackLong(valType int, val int64) {
 	pckr.buffer.Write(Buffer.Int64ToBytes(val, nil, pckr.offset))
 }
 
+func (pckr *packer) PackULong(val uint64) {
+	pckr.buffer.WriteByte(byte(0xcf))
+	pckr.buffer.Write(Buffer.Int64ToBytes(int64(val), nil, pckr.offset))
+}
+
 func (pckr *packer) PackInt(valType int, val int32) {
 	pckr.buffer.WriteByte(byte(valType))
 	pckr.buffer.Write(Buffer.Int32ToBytes(val, nil, pckr.offset))
@@ -313,6 +334,24 @@ func (pckr *packer) PackByte(valType int, val byte) {
 
 func (pckr *packer) PackNil() {
 	pckr.buffer.WriteByte(0xc0)
+}
+
+func (pckr *packer) PackBool(val bool) {
+	if val {
+		pckr.buffer.WriteByte(0xc3)
+	} else {
+		pckr.buffer.WriteByte(0xc2)
+	}
+}
+
+func (pckr *packer) PackFloat32(val float32) {
+	pckr.buffer.WriteByte(0xca)
+	pckr.buffer.Write(Buffer.Float32ToBytes(val, nil, pckr.offset))
+}
+
+func (pckr *packer) PackFloat64(val float64) {
+	pckr.buffer.WriteByte(0xcb)
+	pckr.buffer.Write(Buffer.Float64ToBytes(val, nil, pckr.offset))
 }
 
 func (pckr *packer) PackAByte(val byte) {
