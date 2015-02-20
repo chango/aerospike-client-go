@@ -283,7 +283,7 @@ func (cmd *baseCommand) setOperate(policy *WritePolicy, key *Key, operations []*
 	return nil
 }
 
-func (cmd *baseCommand) setUdf(policy Policy, key *Key, packageName string, functionName string, args []Value) error {
+func (cmd *baseCommand) setUdf(policy Policy, key *Key, packageName string, functionName string, args []Value) (err error) {
 	cmd.begin()
 	fieldCount := cmd.estimateKeySize(key, false)
 	argBytes, err := packValueArray(args)
@@ -305,7 +305,7 @@ func (cmd *baseCommand) setUdf(policy Policy, key *Key, packageName string, func
 	return nil
 }
 
-func (cmd *baseCommand) setBatchExists(policy *BasePolicy, batchNamespace *batchNamespace) error {
+func (cmd *baseCommand) setBatchExists(policy *BasePolicy, batchNamespace *batchNamespace) (err error) {
 	// Estimate buffer size
 	cmd.begin()
 	keys := batchNamespace.keys
@@ -330,7 +330,7 @@ func (cmd *baseCommand) setBatchExists(policy *BasePolicy, batchNamespace *batch
 	return nil
 }
 
-func (cmd *baseCommand) setBatchGet(policy Policy, batchNamespace *batchNamespace, binNames map[string]struct{}, readAttr int) error {
+func (cmd *baseCommand) setBatchGet(policy Policy, batchNamespace *batchNamespace, binNames map[string]struct{}, readAttr int) (err error) {
 	// Estimate buffer size
 	cmd.begin()
 	keys := batchNamespace.keys
