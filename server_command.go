@@ -28,7 +28,7 @@ type serverCommand struct {
 
 func newServerCommand(node *Node, policy *QueryPolicy, statement *Statement) *serverCommand {
 	return &serverCommand{
-		queryCommand: newQueryCommand(node, policy, statement, nil, nil),
+		queryCommand: newQueryCommand(node, policy, statement, nil),
 	}
 }
 
@@ -80,10 +80,6 @@ func (cmd *serverCommand) parseRecordResults(ifc command, receiveSize int) (bool
 			if err := cmd.readBytes(particleBytesSize); err != nil {
 				return false, err
 			}
-		}
-
-		if !cmd.IsValid() {
-			return false, NewAerospikeError(QUERY_TERMINATED)
 		}
 	}
 	return true, nil

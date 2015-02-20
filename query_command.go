@@ -14,36 +14,18 @@
 
 package aerospike
 
-import (
-	"time"
-
-	Buffer "github.com/aerospike/aerospike-client-go/utils/buffer"
-)
+import Buffer "github.com/aerospike/aerospike-client-go/utils/buffer"
 
 type queryCommand struct {
 	*baseMultiCommand
 
 	policy    *QueryPolicy
 	statement *Statement
-
-	// RecordSet recordSet;
-	// Records chan *Record
-	// Errors  chan error
 }
 
-func newQueryCommand(node *Node, policy *QueryPolicy, statement *Statement, recChan chan *Record, errChan chan error) *queryCommand {
-	// make recChan in case it is nil
-	if recChan == nil {
-		recChan = make(chan *Record, 1024)
-	}
-
-	// make errChan in case it is nil
-	if errChan == nil {
-		errChan = make(chan error, 1024)
-	}
-
+func newQueryCommand(node *Node, policy *QueryPolicy, statement *Statement, recordset *Recordset) *queryCommand {
 	return &queryCommand{
-		baseMultiCommand: newMultiCommand(node, recChan, errChan),
+		baseMultiCommand: newMultiCommand(node, recordset),
 		policy:           policy,
 		statement:        statement,
 	}
@@ -108,9 +90,8 @@ func (cmd *queryCommand) writeBuffer(ifc command) (err error) {
 		fieldCount++
 	}
 
-	if cmd.statement.TaskId == 0 {
-		cmd.statement.TaskId = time.Now().UnixNano()
-	}
+	// make sure taskId is a non-zero random 64bit number
+	cmd.statement.setTaskId()
 
 	cmd.dataOffset += 8 + int(_FIELD_HEADER_SIZE)
 	fieldCount++
@@ -136,7 +117,7 @@ func (cmd *queryCommand) writeBuffer(ifc command) (err error) {
 	}
 
 	readAttr := _INFO1_READ
-	cmd.writeHeader(readAttr, 0, fieldCount, 0)
+	cmd.writeHeader(cmd.policy.GetBasePolicy(), readAttr, 0, fieldCount, 0)
 
 	if cmd.statement.Namespace != "" {
 		cmd.writeFieldString(cmd.statement.Namespace, NAMESPACE)
@@ -208,9 +189,5 @@ func (cmd *queryCommand) writeBuffer(ifc command) (err error) {
 }
 
 func (cmd *queryCommand) parseResult(ifc command, conn *Connection) error {
-	// close the channel
-	defer close(cmd.Records)
-	defer close(cmd.Errors)
-
 	return cmd.baseMultiCommand.parseResult(ifc, conn)
 }

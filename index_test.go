@@ -15,7 +15,6 @@
 package aerospike_test
 
 import (
-	"flag"
 	"math"
 	"math/rand"
 	"time"
@@ -32,8 +31,7 @@ import (
 
 // ALL tests are isolated by SetName and Key, which are 50 random charachters
 var _ = Describe("Index operations test", func() {
-	rand.Seed(time.Now().UnixNano())
-	flag.Parse()
+	initTestVars()
 
 	Describe("Index creation", func() {
 		// connection data
@@ -49,7 +47,7 @@ var _ = Describe("Index operations test", func() {
 		bin2 := NewBin("Aerospike2", randString(100))
 
 		BeforeEach(func() {
-			client, err = NewClient(*host, *port)
+			client, err = NewClientWithPolicy(clientPolicy, *host, *port)
 			Expect(err).ToNot(HaveOccurred())
 			key, err = NewKey(ns, set, randString(50))
 			Expect(err).ToNot(HaveOccurred())
@@ -79,11 +77,40 @@ var _ = Describe("Index operations test", func() {
 			})
 
 			It("must drop an Index", func() {
-				err := client.DropIndex(wpolicy, ns, set, set+bin1.Name)
+				idxTask, err := client.CreateIndex(wpolicy, ns, set, set+bin1.Name, bin1.Name, STRING)
+				Expect(err).ToNot(HaveOccurred())
+
+				// wait until index is created
+				<-idxTask.OnComplete()
+
+				err = client.DropIndex(wpolicy, ns, set, set+bin1.Name)
 				Expect(err).ToNot(HaveOccurred())
 
 				err = client.DropIndex(wpolicy, ns, set, set+bin1.Name)
 				Expect(err).ToNot(HaveOccurred())
+			})
+
+			It("must drop an Index, and recreate it again to verify", func() {
+				idxTask, err := client.CreateIndex(wpolicy, ns, set, set+bin1.Name, bin1.Name, STRING)
+				Expect(err).ToNot(HaveOccurred())
+
+				// wait until index is created
+				<-idxTask.OnComplete()
+
+				// droping second time is not expected to raise any errors
+				err = client.DropIndex(wpolicy, ns, set, set+bin1.Name)
+				Expect(err).ToNot(HaveOccurred())
+
+				// wait a few secs to make sure index has been dropped everywhere
+				time.Sleep(3 * time.Second)
+
+				// create the index again; should not encounter any errors
+				idxTask, err = client.CreateIndex(wpolicy, ns, set, set+bin1.Name, bin1.Name, STRING)
+				Expect(err).ToNot(HaveOccurred())
+
+				// wait until index is created
+				<-idxTask.OnComplete()
+
 			})
 
 		})

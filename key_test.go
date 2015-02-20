@@ -16,11 +16,8 @@ package aerospike_test
 
 import (
 	"encoding/hex"
-	"flag"
 	"math"
-	"math/rand"
 	"strings"
-	"time"
 
 	. "github.com/aerospike/aerospike-client-go"
 
@@ -30,8 +27,7 @@ import (
 
 // ALL tests are isolated by SetName and Key, which are 50 random charachters
 var _ = Describe("Key Test", func() {
-	rand.Seed(time.Now().UnixNano())
-	flag.Parse()
+	initTestVars()
 
 	Context("Digests should be the same", func() {
 
@@ -134,6 +130,17 @@ var _ = Describe("Key Test", func() {
 			key, _ = NewKey("namespace", "set", []interface{}{1, []byte{1, 17}, "str"})
 			Expect(hex.EncodeToString(key.Digest())).To(Equal("8f5129e079cf66333a8372192d93072a4c661be2"))
 
+		})
+
+		It("for custom digest", func() {
+			key, _ := NewKey("namespace", "set", []interface{}{})
+			Expect(hex.EncodeToString(key.Digest())).To(Equal("2af0111192df4ca297232d1641ff52c2ce51ce2d"))
+			err := key.SetDigest([]byte("01234567890123456789"))
+			Expect(err, nil)
+			Expect(key.Digest()).To(Equal([]byte("01234567890123456789")))
+
+			key, _ = NewKeyWithDigest("namespace", "set", []interface{}{}, []byte("01234567890123456789"))
+			Expect(key.Digest()).To(Equal([]byte("01234567890123456789")))
 		})
 
 	})

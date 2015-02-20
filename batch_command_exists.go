@@ -37,7 +37,7 @@ func newBatchCommandExists(
 	existsArray []bool,
 ) *batchCommandExists {
 	return &batchCommandExists{
-		baseMultiCommand: newMultiCommand(node, nil, nil),
+		baseMultiCommand: newMultiCommand(node, nil),
 		batchNamespace:   batchNamespace,
 		policy:           policy,
 		keyMap:           keyMap,
@@ -50,7 +50,7 @@ func (cmd *batchCommandExists) getPolicy(ifc command) Policy {
 }
 
 func (cmd *batchCommandExists) writeBuffer(ifc command) error {
-	return cmd.setBatchExists(cmd.batchNamespace)
+	return cmd.setBatchExists(cmd.policy, cmd.batchNamespace)
 }
 
 // Parse all results in the batch.  Add records to shared list.
@@ -60,10 +60,6 @@ func (cmd *batchCommandExists) parseRecordResults(ifc command, receiveSize int) 
 	cmd.dataOffset = 0
 
 	for cmd.dataOffset < receiveSize {
-		if !cmd.IsValid() {
-			return false, NewAerospikeError(QUERY_TERMINATED)
-		}
-
 		if err := cmd.readBytes(int(_MSG_REMAINING_HEADER_SIZE)); err != nil {
 			return false, err
 		}

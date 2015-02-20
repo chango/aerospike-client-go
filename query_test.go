@@ -15,10 +15,8 @@
 package aerospike_test
 
 import (
-	"flag"
 	"math"
 	"math/rand"
-	"time"
 
 	. "github.com/aerospike/aerospike-client-go"
 
@@ -43,8 +41,7 @@ end`
 
 // ALL tests are isolated by SetName and Key, which are 50 random charachters
 var _ = Describe("Query operations", func() {
-	rand.Seed(time.Now().UnixNano())
-	flag.Parse()
+	initTestVars()
 
 	// connection data
 	var ns = "test"
@@ -52,7 +49,7 @@ var _ = Describe("Query operations", func() {
 	var wpolicy = NewWritePolicy(0, 0)
 	wpolicy.SendKey = true
 
-	const keyCount = 100
+	const keyCount = 10000
 	bin1 := NewBin("Aerospike1", rand.Intn(math.MaxInt16))
 	bin2 := NewBin("Aerospike2", randString(100))
 	bin3 := NewBin("Aerospike3", rand.Intn(math.MaxInt16))
@@ -61,7 +58,10 @@ var _ = Describe("Query operations", func() {
 	var keys map[string]*Key
 
 	// use the same client for all
-	client, _ := NewClient(*host, *port)
+	client, err := NewClientWithPolicy(clientPolicy, *host, *port)
+	if err != nil {
+		panic(err)
+	}
 
 	// read all records from the channel and make sure all of them are returned
 	var checkResults = func(recordset *Recordset, cancelCnt int) {

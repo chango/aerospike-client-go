@@ -15,10 +15,6 @@
 package aerospike_test
 
 import (
-	"flag"
-	"math/rand"
-	"time"
-
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
@@ -27,8 +23,8 @@ import (
 )
 
 var _ = Describe("LargeList Test", func() {
-	rand.Seed(time.Now().UnixNano())
-	flag.Parse()
+	initTestVars()
+
 	// connection data
 	var client *Client
 	var err error
@@ -38,13 +34,13 @@ var _ = Describe("LargeList Test", func() {
 	var wpolicy = NewWritePolicy(0, 0)
 
 	BeforeEach(func() {
-		client, err = NewClient(*host, *port)
+		client, err = NewClientWithPolicy(clientPolicy, *host, *port)
 		Expect(err).ToNot(HaveOccurred())
 		key, err = NewKey(ns, set, randString(50))
 		Expect(err).ToNot(HaveOccurred())
 	})
 
-	It("should create a valid LargeList; Support Add(), Remove(), Find(), Size(), Scan(), Destroy() and GetCapacity()", func() {
+	It("should create a valid LargeList; Support Add(), Remove(), Find(), Size(), Scan(), Range(), Destroy() and GetCapacity()", func() {
 		llist := client.GetLargeList(wpolicy, key, randString(10), "")
 		res, err := llist.Size()
 		Expect(err).ToNot(HaveOccurred()) // bin not exists
@@ -78,6 +74,11 @@ var _ = Describe("LargeList Test", func() {
 		Expect(err).ToNot(HaveOccurred())
 		Expect(len(scanResult)).To(Equal(100))
 		Expect(scanResult).To(Equal(scanExpectation))
+
+		// check for range
+		rangeResult, err := llist.Range(0, 100)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(len(rangeResult)).To(Equal(100))
 
 		for i := 1; i <= 100; i++ {
 			// confirm that the value already exists in the LLIST

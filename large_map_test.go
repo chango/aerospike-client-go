@@ -15,10 +15,6 @@
 package aerospike_test
 
 import (
-	"flag"
-	"math/rand"
-	"time"
-
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
@@ -26,8 +22,8 @@ import (
 )
 
 var _ = Describe("LargeMap Test", func() {
-	rand.Seed(time.Now().UnixNano())
-	flag.Parse()
+	initTestVars()
+
 	// connection data
 	var client *Client
 	var err error
@@ -37,7 +33,7 @@ var _ = Describe("LargeMap Test", func() {
 	var wpolicy = NewWritePolicy(0, 0)
 
 	BeforeEach(func() {
-		client, err = NewClient(*host, *port)
+		client, err = NewClientWithPolicy(clientPolicy, *host, *port)
 		Expect(err).ToNot(HaveOccurred())
 		key, err = NewKey(ns, set, randString(50))
 		Expect(err).ToNot(HaveOccurred())
@@ -70,7 +66,7 @@ var _ = Describe("LargeMap Test", func() {
 		Expect(err).ToNot(HaveOccurred())
 	})
 
-	It("should create a valid LargeMap; Support Put(), Get(), Remove(), Find(), Size(), Scan() and GetCapacity()", func() {
+	It("should create a valid LargeMap; Support Put(), Exists(), Get(), Remove(), Find(), Size(), Scan() and GetCapacity()", func() {
 		lmap := client.GetLargeMap(wpolicy, key, randString(10), "")
 		res, err := lmap.Size()
 		Expect(err).ToNot(HaveOccurred()) // bin not exists
@@ -85,10 +81,16 @@ var _ = Describe("LargeMap Test", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(elem).To(Equal(map[interface{}]interface{}{i * 100: i}))
 
+			// check if it exists
+			exists, err := lmap.Exists(i * 100)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(exists).To(BeTrue())
+
 			// check for a non-existing element
+			// This test only passes in Aerospike 3.4.1 and above
 			elem, err = lmap.Get(i * 70000)
-			Expect(err).To(HaveOccurred())
-			Expect(elem).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(elem).To(Equal(map[interface{}]interface{}{}))
 
 			// confirm that the LMAP size has been increased to the expected size
 			sz, err := lmap.Size()

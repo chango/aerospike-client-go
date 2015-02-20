@@ -15,11 +15,9 @@
 package aerospike_test
 
 import (
-	"flag"
 	"math"
 	"math/rand"
 	"strings"
-	"time"
 
 	. "github.com/aerospike/aerospike-client-go"
 
@@ -53,8 +51,7 @@ end`
 
 // ALL tests are isolated by SetName and Key, which are 50 random charachters
 var _ = Describe("UDF/Query tests", func() {
-	rand.Seed(time.Now().UnixNano())
-	flag.Parse()
+	initTestVars()
 
 	// connection data
 	var client *Client
@@ -68,7 +65,10 @@ var _ = Describe("UDF/Query tests", func() {
 	bin1 := NewBin("bin1", rand.Intn(math.MaxInt16))
 	bin2 := NewBin("bin2", 1)
 
-	client, _ = NewClient(*host, *port)
+	client, err = NewClientWithPolicy(clientPolicy, *host, *port)
+	if err != nil {
+		panic(err)
+	}
 
 	It("must Register a UDF", func() {
 		regTask, err := client.RegisterUDF(wpolicy, []byte(udfBody), "udf1.lua", LUA)
@@ -132,6 +132,7 @@ var _ = Describe("UDF/Query tests", func() {
 	Context("must run the UDF on all records", func() {
 
 		BeforeEach(func() {
+			set = randString(50)
 			for i := 0; i < keyCount; i++ {
 				key, err = NewKey(ns, set, randString(50))
 				Expect(err).ToNot(HaveOccurred())
@@ -149,13 +150,8 @@ var _ = Describe("UDF/Query tests", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				// wait until UDF is run on all records
-				for {
-					if err := <-exTask.OnComplete(); err == nil {
-						break
-					} else {
-						panic(err)
-					}
-				}
+				err = <-exTask.OnComplete()
+				Expect(err).ToNot(HaveOccurred())
 
 				// read all data and make sure it is consistent
 				recordset, err := client.ScanAll(nil, ns, set)
@@ -208,7 +204,10 @@ var _ = Describe("UDF/Query tests", func() {
 
 	Context("must serialize parameters and return values sensibly", func() {
 
-		regTask, _ := client.RegisterUDF(wpolicy, []byte(udfEcho), "udfEcho.lua", LUA)
+		regTask, err := client.RegisterUDF(wpolicy, []byte(udfEcho), "udfEcho.lua", LUA)
+		if err != nil {
+			panic(err)
+		}
 		// wait until UDF is created
 		<-regTask.OnComplete()
 		// a new record that is not in the range

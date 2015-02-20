@@ -26,17 +26,6 @@ import (
 	. "github.com/aerospike/aerospike-client-go/types/atomic"
 )
 
-type tendCommand int
-
-const (
-	_TEND_CMD_CLOSE tendCommand = iota
-	_TEND_MSG_CLOSED
-)
-
-const (
-	tendInterval = 1 * time.Second
-)
-
 // Cluster encapsulates the aerospike cluster nodes and manages
 // them.
 type Cluster struct {
@@ -62,8 +51,15 @@ type Cluster struct {
 	connectionTimeout time.Duration
 
 	mutex       sync.RWMutex
-	tendChannel chan tendCommand
+	wgTend      sync.WaitGroup
+	tendChannel chan struct{}
 	closed      AtomicBool
+
+	// User name in UTF-8 encoded bytes.
+	user string
+
+	// Password in hashed format in bytes.
+	password []byte
 }
 
 // NewCluster generates a Cluster instance.
@@ -76,7 +72,16 @@ func NewCluster(policy *ClientPolicy, hosts []*Host) (*Cluster, error) {
 		nodes:               []*Node{},
 		partitionWriteMap:   make(map[string][]*Node),
 		nodeIndex:           NewAtomicInt(0),
-		tendChannel:         make(chan tendCommand),
+		tendChannel:         make(chan struct{}),
+	}
+
+	// setup auth info for cluster
+	var err error
+	if policy.RequiresAuthentication() {
+		newCluster.user = policy.User
+		if newCluster.password, err = hashPassword(policy.Password); err != nil {
+			return nil, err
+		}
 	}
 
 	// try to seed connections for first use
@@ -88,7 +93,8 @@ func NewCluster(policy *ClientPolicy, hosts []*Host) (*Cluster, error) {
 	}
 
 	// start up cluster maintenance go routine
-	go newCluster.clusterBoss()
+	newCluster.wgTend.Add(1)
+	go newCluster.clusterBoss(policy)
 
 	Logger.Debug("New cluster initialized and ready to be used...")
 	return newCluster, nil
@@ -96,16 +102,20 @@ func NewCluster(policy *ClientPolicy, hosts []*Host) (*Cluster, error) {
 
 // Maintains the cluster on intervals.
 // All clean up code for cluster is here as well.
-func (clstr *Cluster) clusterBoss() {
+func (clstr *Cluster) clusterBoss(policy *ClientPolicy) {
+	defer clstr.wgTend.Done()
+
+	tendInterval := policy.TendInterval
+	if tendInterval <= 10*time.Millisecond {
+		tendInterval = 10 * time.Millisecond
+	}
 
 Loop:
 	for {
 		select {
-		case cmd := <-clstr.tendChannel:
-			switch cmd {
-			case _TEND_CMD_CLOSE:
-				break Loop
-			}
+		case <-clstr.tendChannel:
+			// tend channel closed
+			break Loop
 		case <-time.After(tendInterval):
 			if err := clstr.tend(); err != nil {
 				Logger.Warn(err.Error())
@@ -121,8 +131,6 @@ Loop:
 	for _, node := range nodeArray {
 		node.Close()
 	}
-
-	clstr.tendChannel <- _TEND_MSG_CLOSED
 }
 
 // AddSeeds adds new hosts to the cluster.
@@ -299,7 +307,7 @@ func (clstr *Cluster) seedNodes() {
 	list := []*Node{}
 
 	for _, seed := range seedArray {
-		seedNodeValidator, err := newNodeValidator(seed, clstr.connectionTimeout)
+		seedNodeValidator, err := newNodeValidator(clstr, seed, clstr.connectionTimeout)
 		if err != nil {
 			Logger.Warn("Seed %s failed: %s", seed.String(), err.Error())
 			continue
@@ -312,7 +320,7 @@ func (clstr *Cluster) seedNodes() {
 			if *alias == *seed {
 				nv = seedNodeValidator
 			} else {
-				nv, err = newNodeValidator(alias, clstr.connectionTimeout)
+				nv, err = newNodeValidator(clstr, alias, clstr.connectionTimeout)
 				if err != nil {
 					Logger.Warn("Seed %s failed: %s", seed.String(), err.Error())
 					continue
@@ -362,7 +370,7 @@ func (clstr *Cluster) findNodesToAdd(hosts []*Host) []*Node {
 	list := make([]*Node, 0, len(hosts))
 
 	for _, host := range hosts {
-		if nv, err := newNodeValidator(host, clstr.connectionTimeout); err != nil {
+		if nv, err := newNodeValidator(clstr, host, clstr.connectionTimeout); err != nil {
 			Logger.Warn("Add node %s failed: %s", err.Error())
 		} else {
 			node := clstr.findNodeByName(nv.name)
@@ -628,10 +636,10 @@ func (clstr *Cluster) findNodeByName(nodeName string) *Node {
 func (clstr *Cluster) Close() {
 	if !clstr.closed.Get() {
 		// send close signal to maintenance channel
-		clstr.tendChannel <- _TEND_CMD_CLOSE
+		close(clstr.tendChannel)
 
-		// wait until tendChannel returns
-		<-clstr.tendChannel
+		// wait until tend is over
+		clstr.wgTend.Wait()
 	}
 }
 
@@ -696,5 +704,12 @@ func (clstr *Cluster) WaitUntillMigrationIsFinished(timeout time.Duration) (err 
 		return NewAerospikeError(TIMEOUT)
 	case err = <-done:
 		return err
+	}
+}
+
+func (clstr *Cluster) changePassword(user string, password []byte) {
+	// change password ONLY if the user is the same
+	if clstr.user == user {
+		clstr.password = password
 	}
 }
